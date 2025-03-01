@@ -1,0 +1,14 @@
+
+services:
+  mongo:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    command: ["mongod", "--noauth"]
+
+  mongo-express:
+    image: mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+        ME_CONFIG_MONGODB_URL: "mongodb+srv://adamskahiga:36596768Bantu.@cluster0.anyi0.mongodb.net/"
