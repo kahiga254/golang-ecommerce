@@ -27,7 +27,7 @@ type User struct {
 
 type Product struct {
 	Product_ID		 primitive.ObjectID	 `json:"_id" bson:"_id,omitempty"`
-	Procduct_Name	 *string			`Json:"product_name"`
+	Product_Name	 *string			`Json:"product_name"`
 	Price			 *uint64			`json:"price"`
 	Rating			 *uint8				`json:"rating"`
 	Image			  *string 			`json:"image"`
@@ -56,11 +56,11 @@ type Order struct {
 	Ordered_At		time.Time			`json:"ordered_at" bson:"ordered_at"`
 	Price			 *uint64			`json:"total_price" bson:"total_price"`
 	Discount		 *uint64			`json:"discount" bson:"discount"`
-	Payment_Method	 payment			``
+	Payment_Method	 Payment			``
 
 }
 
-type payment struct {
+type Payment struct {
 	Digital	bool
 	COD		bool
 }

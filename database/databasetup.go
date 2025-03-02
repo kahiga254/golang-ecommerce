@@ -16,7 +16,7 @@ func DBSet() *mongo.Client{
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb+srv://adamskahiga:36596768Bantu.@cluster0.anyi0.mongodb.net/"))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb+srv://adamskahiga:36596768Bantu.@cluster0.anyi0.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"))
 	 
 	if err != nil {
 		log.Fatal(err)

@@ -33,21 +33,21 @@ func (app *Application) AddToCart() gin.HandlerFunc{
 	productQueryID := c.Query("id")
 	if productQueryID == "" {
 		log.Println("Product ID is required")
-		_ = c.AbortWithError(http.StatusBadRequest, errors.New("product ID is required"))
+	 c.JSON(http.StatusBadRequest, errors.New("product ID is required"))
 		return
 	}
 
 	userQueryID := c.Query("user_id")
+	
 	if userQueryID == "" {
 		log.Println("User ID is required")
-		_ = c.AbortWithError(http.StatusBadRequest, errors.New("user ID is required"))
+		 c.JSON(http.StatusBadRequest, errors.New("user ID is required"))
 		return
 	}
 
 	productID, err := primitive.ObjectIDFromHex(productQueryID)
-
 	if err != nil {
-		log.Println(err)
+		log.Println("Invalid Product ID format",err)
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
 	}
@@ -57,11 +57,17 @@ func (app *Application) AddToCart() gin.HandlerFunc{
 	var ctx, cancel = context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 
+	log.Println("Product ID:", productQueryID)
+	log.Println("User ID:", userQueryID)
+	log.Println("Calling AddProductToCart...")
+
 	err = database.AddProductToCart(ctx, app.userCollection, app.prodCollection, productID, userID)
 	if err != nil {
-		c.IndentedJSON(http.StatusInternalServerError, err)
+		log.Println("Error adding product to cart:", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add product to cart"})
+		return
 	}
-	c.IndentedJSON(http.StatusOK, "Product added to cart")
+	c.JSON(http.StatusOK, gin.H{"message": "Product added to cart"})
  }
 }
 
@@ -161,7 +167,6 @@ func (app *Application) BuyFromCart() gin.HandlerFunc{
 		}
 
 		var ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-
 		defer cancel()
 
 		err := database.BuyItemFromCart(ctx, app.userCollection, userQueryID)
@@ -199,7 +204,7 @@ func (app *Application) InstantBuy() gin.HandlerFunc{
 		
 			var ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()	
-			err = database.InstantBuyer(ctx, app.userCollection, app.prodCollection, productID, userQueryID)
+			err = database.InstantBuyer(ctx, app.prodCollection, app.userCollection, productID, userQueryID)
 			if err != nil {
 				c.IndentedJSON(http.StatusInternalServerError, err)
 				return

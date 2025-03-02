@@ -22,32 +22,70 @@ var (
 
 )
 
-func AddProductToCart(ctx context.Context, prodCollection, userCollection *mongo.Collection, productID primitive.ObjectID, userID string) error {
+func AddProductToCart(ctx context.Context, userCollection, prodCollection *mongo.Collection, productID primitive.ObjectID, userID string) error {
 	searchfromdb, err := prodCollection.Find(ctx, bson.M{"_id": productID})
 	if err != nil {
-		log.Println(err)
+		log.Println("Database error while finding product:", err)
 		return ErrCantFindProduct
 	}
+	defer searchfromdb.Close(ctx)
+
+	// Check if a product was found
+	if !searchfromdb.Next(ctx) {
+		log.Println("No product found with ID:", productID)
+		return ErrCantFindProduct
+	}
+
+
 	var productCart []models.ProductUser
 	err = searchfromdb.All(ctx, &productCart)
 	if err!=nil{
-		log.Println(err)
+		log.Println("Error decoding product:", err)
 		return ErrCantDecodeProduct
 	}
+
+	// Check if productCart is empty
+	if len(productCart) == 0 {
+		log.Println("No products found for ID:", productID)
+		return ErrCantFindProduct
+	}
+
+	// Convert userID to ObjectID
 	id, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		log.Println(err)
+		log.Println("Invalid User ID format:", err)
 		return ErrUserIdIsNotValid
 	}
 
-	filter := bson.D{primitive.E{Key:"_id", Value: id} }
-	update := bson.D{{Key:"$push", Value: bson.D{primitive.E{Key:"usercart", Value: bson.D{{Key:"$each", Value:productCart}}}}}}
-
-	_,err = userCollection.UpdateOne(ctx, filter, update)
+	// Ensure the user exists in the database
+	filter := bson.M{"_id": id}
+	userCount, err := userCollection.CountDocuments(ctx, filter)
 	if err != nil {
-		log.Println(err)
+		log.Println("Database error while checking user existence:", err)
 		return ErrCantUpdateUser
 	}
+	if userCount == 0 {
+		log.Println("User not found:", userID)
+		return ErrCantUpdateUser
+	} 
+
+	//Update the user's cart
+	update := bson.M{"$push": bson.M{"usercart": bson.M{"$each": productCart}},
+	}
+
+	result,err := userCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		log.Println("Error updating user cart:", err)
+		return ErrCantUpdateUser
+	}
+
+	// Check if the update was applied
+	if result.MatchedCount == 0 {
+		log.Println("User not found in database")
+		return ErrCantUpdateUser
+	}
+
+	log.Println("Successfully added product to cart for user:", userID)
 	return nil
 }
 
@@ -101,9 +139,15 @@ func BuyItemFromCart(ctx context.Context, userCollection *mongo.Collection, user
 	 var total_price int32
 
 	 for _, user_item := range getuser{
-		price := user_item["total"]
-		total_price = price.(int32)
+		price, ok := user_item["total"].(int64)
+		if !ok {
+			log.Println("Error converting total price to int64")
+			return ErrCantBuyCarItem
+		}
+
+		total_price = int32(price)
 	 }
+	 ordercart.Price = new(uint64)
 	 *ordercart.Price = uint64(total_price)
 
 	 filter := bson.D{primitive.E{Key:"_id"}}
@@ -137,40 +181,57 @@ func BuyItemFromCart(ctx context.Context, userCollection *mongo.Collection, user
 }
 
 func InstantBuyer(ctx context.Context, prodCollection, userCollection *mongo.Collection, productID primitive.ObjectID, userID string) error {
+	log.Println("Using prodCollection:", prodCollection.Name(), "in database:", prodCollection.Database().Name())
+    log.Println("Fetching product with ID:", productID.Hex())
 	id, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		log.Println(err)
 		return ErrUserIdIsNotValid
 	}
 	var product_details models.ProductUser
-	var order_detail models.Order
+	err = prodCollection.FindOne(ctx, bson.M{"_id": productID}).Decode(&product_details)
+	log.Println("Fetching product with ID:", productID.Hex())
+	if err != nil {
+		log.Println("Error fetching product details:", err)
+		return err
+	}
 
-	order_detail.Order_ID = primitive.NewObjectID()
-	order_detail.Ordered_At = time.Now()
-	order_detail.Order_Cart = make([]models.ProductUser, 0)
-	order_detail.Payment_Method.COD = true
-	err = prodCollection.FindOne(ctx, bson.D{primitive.E{Key:"_id", Value: productID}}).Decode(&product_details)
+	// Create order details
+	order_detail := models.Order{
+		Order_ID:       primitive.NewObjectID(),
+		Ordered_At:     time.Now(),
+		Order_Cart:     []models.ProductUser{product_details},
+		Payment_Method: models.Payment{COD: true},
+		Price:          product_details.Price,
+	}
+
+
+    // Update user orders
+	filter := bson.M{"_id": id}
+	update := bson.M{"$push": bson.M{"orders": order_detail}}
+
+	updateResult,err := userCollection.UpdateOne(ctx, filter, update)
 	if err!=nil{
-		log.Println(err)
+		log.Println("Error updating user orders:", err)
+		return err
 	}
-	order_detail.Price = product_details.Price
+	if updateResult.MatchedCount == 0 {
+		log.Println("Warning: No matching user found for update")
+		return errors.New("user not found")
+	}
 
-	filter := bson.D{primitive.E{Key:"_id", Value:id} }
-	update := bson.D{{Key:"$push", Value: bson.D{primitive.E{Key:"orders", Value:order_detail}}}}
-
-	_, err = userCollection.UpdateOne(ctx, filter, update)
+	// Add product to order_list inside orders array
+	update2 := bson.M{"$push":bson.M{"orders.$[].order_list": product_details,},}
+	updateResult2, err := userCollection.UpdateOne(ctx, filter, update2)
 	if err != nil {
-		log.Println(err)
+		log.Println("Error adding product to order_list:", err)
+		return err
 	}
 
-	filter2 := bson.D{primitive.E{Key:"_id", Value:id}}
-	update2 := bson.M{"$push":bson.M{"orders.&[].order_list": bson.M{"$each": product_details}}}
-
-	_, err = userCollection.UpdateOne(ctx, filter2, update2)
-	if err != nil {
-		log.Println(err)
+	if updateResult2.MatchedCount == 0 {
+		log.Println("Warning: No matching user found for order list update")
 	}
-	return nil
-	
-	
+
+	log.Println("Instant buy completed successfully!")
+	return nil	
 }
